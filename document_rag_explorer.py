@@ -379,10 +379,24 @@ def load_document_sources():
                 logger.info(f"DEBUG: Loaded JSON structure type: {type(resource_contents)}")
                 
                 # Handle different pack.json formats
+                documents_list = None
+
                 if isinstance(resource_contents, list):
-                    logger.info(f"DEBUG: Processing {len(resource_contents)} files from pack.json")
+                    # Format: [{"File": "doc.pdf", "Chunks": [...]}]
+                    documents_list = resource_contents
+                elif isinstance(resource_contents, dict):
+                    # Format: {"PackName": "...", "Documents": [{"File": "doc.pdf", "Chunks": [...]}]}
+                    if "Documents" in resource_contents:
+                        documents_list = resource_contents["Documents"]
+                        pack_name = resource_contents.get("PackName", "Unknown Pack")
+                        logger.info(f"DEBUG: Loading pack '{pack_name}' with {len(documents_list)} documents")
+                    else:
+                        logger.warning(f"Dict format but no 'Documents' key found. Keys: {list(resource_contents.keys())}")
+
+                if documents_list:
+                    logger.info(f"DEBUG: Processing {len(documents_list)} files from pack.json")
                     # Format: [{"File": "doc.pdf", "Chunks": [{"Text": "...", "Page": 1}]}]
-                    for processed_file in resource_contents:
+                    for processed_file in documents_list:
                         file_name = processed_file.get("File", "unknown_file")
                         chunks = processed_file.get("Chunks", [])
                         logger.info(f"DEBUG: Processing file '{file_name}' with {len(chunks)} chunks")
@@ -396,7 +410,7 @@ def load_document_sources():
                             }
                             loaded_sources.append(res)
                 else:
-                    logger.warning(f"Unexpected pack.json format - expected array of files, got: {type(resource_contents)}")
+                    logger.warning(f"Unexpected pack.json format - got: {type(resource_contents)}")
         else:
             logger.warning("pack.json not found in any expected locations")
             
