@@ -664,13 +664,13 @@ def generate_rag_response(user_question, docs):
             'thumbnail': ""  # Would be populated with actual thumbnail if available
         }
         references.append(ref)
-        
-        return {
-            'title': title,
-            'content': content,
-            'references': references,
-            'raw_prompt': full_prompt  # For debugging
-        }
+
+    return {
+        'title': title,
+        'content': content,
+        'references': references,
+        'raw_prompt': full_prompt  # For debugging
+    }
 
 def force_ascii_replace(html_string):
     """Clean HTML string for safe rendering"""
