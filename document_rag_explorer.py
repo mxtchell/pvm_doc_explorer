@@ -483,10 +483,16 @@ def find_matching_documents(user_question, topics, loaded_sources, base_url, max
 
     try:
         import numpy as np
+        import os
         from answer_rocket import AnswerRocketClient
+
+        # Log environment for debugging
+        logger.info(f"DEBUG: AR_URL env: {os.environ.get('AR_URL', 'NOT SET')}")
+        logger.info(f"DEBUG: AR_TOKEN env: {'SET' if os.environ.get('AR_TOKEN') else 'NOT SET'}")
 
         # Initialize AnswerRocket client
         ar_client = AnswerRocketClient()
+        logger.info(f"DEBUG: AnswerRocketClient initialized")
 
         # Combine user question with topics for query
         query_text = user_question
@@ -526,26 +532,39 @@ def find_matching_documents(user_question, topics, loaded_sources, base_url, max
         if query_embedding is None:
             raise Exception(f"Could not extract embedding from response: {type(raw_query_response)}")
 
-        # Generate embeddings for all document chunks
+        # Generate embeddings for all document chunks in batches
         document_texts = [source['text'] for source in loaded_sources]
         logger.info(f"DEBUG: Generating embeddings for {len(document_texts)} document chunks")
-        raw_doc_response = ar_client.llm.generate_embeddings(document_texts)
 
-        # Extract embedding vectors from response
+        BATCH_SIZE = 50
         document_embeddings = []
-        if hasattr(raw_doc_response, 'embeddings') and raw_doc_response.embeddings and len(raw_doc_response.embeddings) > 0:
-            for item in raw_doc_response.embeddings:
-                if hasattr(item, 'vector'):
-                    document_embeddings.append(item.vector)
-                elif hasattr(item, 'embedding'):
-                    document_embeddings.append(item.embedding)
-                elif isinstance(item, list):
-                    document_embeddings.append(item)
-        elif isinstance(raw_doc_response, list) and len(raw_doc_response) > 0:
-            document_embeddings = raw_doc_response
+
+        for i in range(0, len(document_texts), BATCH_SIZE):
+            batch = document_texts[i:i + BATCH_SIZE]
+            logger.info(f"DEBUG: Processing batch {i // BATCH_SIZE + 1}, chunks {i} to {i + len(batch)}")
+
+            raw_doc_response = ar_client.llm.generate_embeddings(batch)
+
+            # Check for API errors
+            if hasattr(raw_doc_response, 'success') and not raw_doc_response.success:
+                error_msg = getattr(raw_doc_response, 'error', 'Unknown error')
+                logger.error(f"DEBUG: Batch embedding failed: {error_msg}")
+                raise Exception(f"Batch embedding failed: {error_msg}")
+
+            # Extract embedding vectors from response
+            if hasattr(raw_doc_response, 'embeddings') and raw_doc_response.embeddings and len(raw_doc_response.embeddings) > 0:
+                for item in raw_doc_response.embeddings:
+                    if hasattr(item, 'vector'):
+                        document_embeddings.append(item.vector)
+                    elif hasattr(item, 'embedding'):
+                        document_embeddings.append(item.embedding)
+                    elif isinstance(item, list):
+                        document_embeddings.append(item)
+            elif isinstance(raw_doc_response, list) and len(raw_doc_response) > 0:
+                document_embeddings.extend(raw_doc_response)
 
         if not document_embeddings:
-            raise Exception(f"Could not extract document embeddings from response: {type(raw_doc_response)}")
+            raise Exception(f"Could not extract document embeddings")
 
         logger.info(f"DEBUG: Extracted {len(document_embeddings)} document embeddings")
 
