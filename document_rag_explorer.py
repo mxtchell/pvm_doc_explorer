@@ -422,87 +422,102 @@ def load_document_sources():
     logger.info(f"Loaded {len(loaded_sources)} document chunks from pack.json")
     return loaded_sources
 
+def cosine_similarity(vec1, vec2):
+    """Calculate cosine similarity between two vectors"""
+    import numpy as np
+
+    vec1 = np.array(vec1)
+    vec2 = np.array(vec2)
+
+    dot_product = np.dot(vec1, vec2)
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
+
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+
+    return dot_product / (norm1 * norm2)
+
+
 def find_matching_documents(user_question, topics, loaded_sources, base_url, max_sources, match_threshold, max_characters):
     """Find documents matching the user question using embedding-based semantic matching"""
-    logger.info("DEBUG: Starting embedding-based document matching")
-    
+
     try:
-        import os
-        
-        logger.info(f"DEBUG: Matching against {len(loaded_sources)} document sources")
-        
-        # Simple text-based matching since sp_tools is not available
+        import numpy as np
+        from answer_rocket import AnswerRocketClient
+
+        # Initialize AnswerRocket client
+        ar_client = AnswerRocketClient()
+
+        # Combine user question with topics for query
+        query_text = user_question
+        if topics:
+            query_text += " " + " ".join([t for t in topics if t])
+
+        logger.info(f"Query: {query_text}")
+
+        # Generate embedding for the user query
+        raw_query_response = ar_client.llm.generate_embeddings([query_text])
+
+        # Extract embedding vector from response
+        if hasattr(raw_query_response, 'embeddings') and len(raw_query_response.embeddings) > 0:
+            query_embedding = raw_query_response.embeddings[0].vector
+        elif isinstance(raw_query_response, list):
+            query_embedding = raw_query_response[0]
+        else:
+            raise Exception(f"Unexpected embedding response structure from API")
+
+        # Generate embeddings for all document chunks
+        document_texts = [source['text'] for source in loaded_sources]
+        raw_doc_response = ar_client.llm.generate_embeddings(document_texts)
+
+        # Extract embedding vectors from response
+        if hasattr(raw_doc_response, 'embeddings') and len(raw_doc_response.embeddings) > 0:
+            document_embeddings = [item.vector for item in raw_doc_response.embeddings]
+        elif isinstance(raw_doc_response, list):
+            document_embeddings = raw_doc_response
+        else:
+            raise Exception(f"Unexpected embedding response structure from API")
+
+        # Calculate cosine similarity between query and each document
+        scored_sources = []
+        for idx, source in enumerate(loaded_sources):
+            similarity = cosine_similarity(query_embedding, document_embeddings[idx])
+
+            if similarity >= float(match_threshold):
+                source_copy = source.copy()
+                source_copy['match_score'] = similarity
+                source_copy['url'] = f"{base_url.rstrip('/')}/{source_copy['file_name']}#page={source_copy['chunk_index']}"
+                scored_sources.append(source_copy)
+
+        # Sort by similarity score (descending)
+        scored_sources.sort(key=lambda x: x['match_score'], reverse=True)
+
+        # Select top matches respecting character and source limits
         matches = []
         chars_so_far = 0
-        
-        # Combine all search terms
-        search_terms = []
-        if user_question:
-            search_terms.append(user_question)
-        search_terms.extend([topic for topic in topics if topic])
-        
-        logger.info(f"DEBUG: Searching for {len(search_terms)} search terms")
-        
-        # Score each document source
-        for source in loaded_sources:
-            if len(matches) >= int(max_sources) or chars_so_far >= int(max_characters):
+
+        for source in scored_sources:
+            if len(matches) >= int(max_sources):
                 break
-            
-            # Calculate relevance score
-            score = calculate_simple_relevance(source['text'], search_terms)
-            
-            if score >= float(match_threshold):
-                source_copy = source.copy()
-                source_copy['match_score'] = score
-                source_copy['url'] = f"{base_url.rstrip('/')}/{source_copy['file_name']}#page={source_copy['chunk_index']}"
-                matches.append(source_copy)
-                chars_so_far += len(source_copy['text'])
-                logger.info(f"DEBUG: Added match with score {score}: {source_copy['file_name']} page {source_copy['chunk_index']}")
-        
-        # Sort by relevance score (descending)
-        matches.sort(key=lambda x: x['match_score'], reverse=True)
-        matches = matches[:int(max_sources)]
-        
-        logger.info(f"DEBUG: Final matches: {len(matches)}")
+
+            if len(matches) >= 2 and chars_so_far + len(source['text']) > int(max_characters):
+                break
+
+            matches.append(source)
+            chars_so_far += len(source['text'])
+
+        logger.info(f"Found {len(matches)} matching documents")
+        if matches:
+            logger.info(f"Top similarity scores: {[round(m['match_score'], 3) for m in matches[:3]]}")
+
         return [SimpleNamespace(**match) for match in matches]
-        
+
     except Exception as e:
         logger.error(f"ERROR: Embedding matching failed: {e}")
         import traceback
         logger.error(f"ERROR: Full traceback: {traceback.format_exc()}")
         raise e
-
-def calculate_simple_relevance(text, search_terms):
-    """Calculate simple relevance score (placeholder for embedding similarity)"""
-    text_lower = text.lower()
-    score = 0.0
-    
-    logger.info(f"DEBUG: Calculating relevance for text snippet: '{text_lower[:100]}...'")
-    logger.info(f"DEBUG: Search terms: {search_terms}")
-    
-    for term in search_terms:
-        if term and term.lower() in text_lower:
-            # Count occurrences and normalize - give higher score for exact matches
-            occurrences = text_lower.count(term.lower())
-            term_score = min(occurrences * 0.4, 1.0)  # Higher score for exact phrase matches
-            score += term_score
-            logger.info(f"DEBUG: Found exact match '{term}' {occurrences} times, added {term_score} to score")
-        else:
-            # Check for partial matches
-            term_words = term.lower().split()
-            for word in term_words:
-                if len(word) > 3 and word in text_lower:  # Only check words longer than 3 chars
-                    occurrences = text_lower.count(word)
-                    if occurrences > 0:
-                        # Generic scoring based on word length and frequency
-                        base_score = 0.2 if len(word) > 6 else 0.15  # Longer words get slightly higher base score
-                        term_score = min(occurrences * base_score, 0.5)
-                        score += term_score
-                        logger.info(f"DEBUG: Found partial match '{word}' {occurrences} times, added {term_score} to score")
-    
-    final_score = min(score, 1.0)
-    logger.info(f"DEBUG: Final relevance score: {final_score}")
-    return final_score
 
 def generate_rag_response(user_question, docs):
     """Generate response using LLM with document context"""
