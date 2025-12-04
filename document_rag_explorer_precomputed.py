@@ -22,8 +22,8 @@ import html
 logger = logging.getLogger(__name__)
 
 @skill(
-    name="Document RAG Explorer",
-    description="Retrieves and analyzes relevant documents from knowledge base to answer user questions",
+    name="Document RAG Explorer Precomputed",
+    description="Fast document search using pre-computed embeddings. Requires pack.json with embeddings.",
     capabilities="Searches through uploaded documents, finds relevant passages, generates comprehensive answers with citations, and provides source visualizations",
     limitations="Limited to documents in the knowledge base, requires pre-processed document chunks in pack.json",
     parameters=[
@@ -514,41 +514,14 @@ def find_matching_documents(user_question, topics, loaded_sources, base_url, max
         if query_embedding is None:
             raise Exception(f"Could not extract embedding from response: {type(raw_query_response)}")
 
-        # Generate embeddings for all document chunks in batches
-        document_texts = [source['text'] for source in loaded_sources]
-        logger.info(f"DEBUG: Generating embeddings for {len(document_texts)} document chunks")
+        # Use pre-computed embeddings from pack.json
+        document_embeddings = [source.get('embedding') for source in loaded_sources]
+        missing_count = sum(1 for emb in document_embeddings if emb is None)
 
-        BATCH_SIZE = 50
-        document_embeddings = []
+        if missing_count > 0:
+            raise Exception(f"Missing pre-computed embeddings for {missing_count} of {len(loaded_sources)} chunks. Run the embedding script to generate embeddings.")
 
-        for i in range(0, len(document_texts), BATCH_SIZE):
-            batch = document_texts[i:i + BATCH_SIZE]
-            logger.info(f"DEBUG: Processing batch {i // BATCH_SIZE + 1}, chunks {i} to {i + len(batch)}")
-
-            raw_doc_response = ar_client.llm.generate_embeddings(batch)
-
-            # Check for API errors
-            if hasattr(raw_doc_response, 'success') and not raw_doc_response.success:
-                error_msg = getattr(raw_doc_response, 'error', 'Unknown error')
-                logger.error(f"DEBUG: Batch embedding failed: {error_msg}")
-                raise Exception(f"Batch embedding failed: {error_msg}")
-
-            # Extract embedding vectors from response
-            if hasattr(raw_doc_response, 'embeddings') and raw_doc_response.embeddings and len(raw_doc_response.embeddings) > 0:
-                for item in raw_doc_response.embeddings:
-                    if hasattr(item, 'vector'):
-                        document_embeddings.append(item.vector)
-                    elif hasattr(item, 'embedding'):
-                        document_embeddings.append(item.embedding)
-                    elif isinstance(item, list):
-                        document_embeddings.append(item)
-            elif isinstance(raw_doc_response, list) and len(raw_doc_response) > 0:
-                document_embeddings.extend(raw_doc_response)
-
-        if not document_embeddings:
-            raise Exception(f"Could not extract document embeddings")
-
-        logger.info(f"DEBUG: Extracted {len(document_embeddings)} document embeddings")
+        logger.info(f"DEBUG: Using {len(document_embeddings)} pre-computed embeddings")
 
         # Calculate cosine similarity between query and each document
         scored_sources = []
