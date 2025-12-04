@@ -500,6 +500,13 @@ def find_matching_documents(user_question, topics, loaded_sources, base_url, max
         logger.info(f"DEBUG: Query embedding response type: {type(raw_query_response)}")
         logger.info(f"DEBUG: Query embedding response dir: {[a for a in dir(raw_query_response) if not a.startswith('_')]}")
 
+        # Check if API call succeeded
+        if hasattr(raw_query_response, 'success') and not raw_query_response.success:
+            error_msg = getattr(raw_query_response, 'error', 'Unknown error')
+            error_code = getattr(raw_query_response, 'code', 'Unknown code')
+            logger.error(f"DEBUG: Embedding API failed - success: {raw_query_response.success}, error: {error_msg}, code: {error_code}")
+            raise Exception(f"Embedding API call failed: {error_msg} (code: {error_code})")
+
         # Extract embedding vector from response
         query_embedding = None
         if hasattr(raw_query_response, 'embeddings'):
