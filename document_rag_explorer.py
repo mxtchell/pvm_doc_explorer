@@ -103,6 +103,7 @@ def document_rag_explorer(parameters: SkillInput):
     sources_html = ""
     title = "Document Analysis"
     response_data = None
+    docs = []  # Initialize docs to empty list
     
     try:
         # Load document sources from pack.json
@@ -496,26 +497,50 @@ def find_matching_documents(user_question, topics, loaded_sources, base_url, max
 
         # Generate embedding for the user query
         raw_query_response = ar_client.llm.generate_embeddings([query_text])
+        logger.info(f"DEBUG: Query embedding response type: {type(raw_query_response)}")
+        logger.info(f"DEBUG: Query embedding response dir: {[a for a in dir(raw_query_response) if not a.startswith('_')]}")
 
         # Extract embedding vector from response
-        if hasattr(raw_query_response, 'embeddings') and raw_query_response.embeddings and len(raw_query_response.embeddings) > 0:
-            query_embedding = raw_query_response.embeddings[0].vector
+        query_embedding = None
+        if hasattr(raw_query_response, 'embeddings'):
+            logger.info(f"DEBUG: embeddings attr type: {type(raw_query_response.embeddings)}")
+            if raw_query_response.embeddings and len(raw_query_response.embeddings) > 0:
+                first_emb = raw_query_response.embeddings[0]
+                logger.info(f"DEBUG: first embedding type: {type(first_emb)}, dir: {[a for a in dir(first_emb) if not a.startswith('_')]}")
+                if hasattr(first_emb, 'vector'):
+                    query_embedding = first_emb.vector
+                elif hasattr(first_emb, 'embedding'):
+                    query_embedding = first_emb.embedding
+                elif isinstance(first_emb, list):
+                    query_embedding = first_emb
         elif isinstance(raw_query_response, list) and len(raw_query_response) > 0:
             query_embedding = raw_query_response[0]
-        else:
-            raise Exception(f"Unexpected embedding response structure from API: {type(raw_query_response)}")
+
+        if query_embedding is None:
+            raise Exception(f"Could not extract embedding from response: {type(raw_query_response)}")
 
         # Generate embeddings for all document chunks
         document_texts = [source['text'] for source in loaded_sources]
+        logger.info(f"DEBUG: Generating embeddings for {len(document_texts)} document chunks")
         raw_doc_response = ar_client.llm.generate_embeddings(document_texts)
 
         # Extract embedding vectors from response
+        document_embeddings = []
         if hasattr(raw_doc_response, 'embeddings') and raw_doc_response.embeddings and len(raw_doc_response.embeddings) > 0:
-            document_embeddings = [item.vector for item in raw_doc_response.embeddings]
+            for item in raw_doc_response.embeddings:
+                if hasattr(item, 'vector'):
+                    document_embeddings.append(item.vector)
+                elif hasattr(item, 'embedding'):
+                    document_embeddings.append(item.embedding)
+                elif isinstance(item, list):
+                    document_embeddings.append(item)
         elif isinstance(raw_doc_response, list) and len(raw_doc_response) > 0:
             document_embeddings = raw_doc_response
-        else:
-            raise Exception(f"Unexpected embedding response structure from API: {type(raw_doc_response)}")
+
+        if not document_embeddings:
+            raise Exception(f"Could not extract document embeddings from response: {type(raw_doc_response)}")
+
+        logger.info(f"DEBUG: Extracted {len(document_embeddings)} document embeddings")
 
         # Calculate cosine similarity between query and each document
         scored_sources = []
