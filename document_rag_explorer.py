@@ -57,8 +57,14 @@ logger = logging.getLogger(__name__)
         SkillParameter(
             name="max_prompt",
             parameter_type="prompt",
-            description="Prompt for the insights section (left panel)",
-            default_value="Thank you for your question! I've searched through the available documents in the knowledge base. Please check the response and sources tabs above for detailed analysis with citations and document references. Feel free to ask follow-up questions if you need clarification on any of the findings."
+            description="Prompt for chat response (left panel) - 30 words max",
+            default_value="Answer in 30 words or less using these facts:\n{{facts}}"
+        ),
+        SkillParameter(
+            name="insight_prompt",
+            parameter_type="prompt",
+            description="Prompt for insights narrative (right panel) - detailed analysis",
+            default_value="Answer the user's question based on the sources provided. Write a clear, comprehensive response with citations like [1], [2]. Be thorough but concise. 250 words max.\n\nQuestion: {{question}}\n\nSources:\n{{facts}}"
         ),
         SkillParameter(
             name="response_layout",
@@ -84,9 +90,13 @@ def document_rag_explorer(parameters: SkillInput):
     match_threshold = parameters.arguments.match_threshold or 0.2
     max_characters = parameters.arguments.max_characters or 3000
     max_prompt = parameters.arguments.max_prompt
-    
+    insight_prompt = parameters.arguments.insight_prompt
+
     # Initialize empty topics list (globals not available in SkillInput)
     list_of_topics = []
+
+    # Initialize facts for template rendering
+    facts_str = ""
     
     # Initialize results
     main_html = ""
@@ -130,6 +140,12 @@ def document_rag_explorer(parameters: SkillInput):
             sources_html = "<p>No sources available</p>"
             title = "No Results Found"
         else:
+            # Build facts string from matched documents for prompt templates
+            facts_parts = []
+            for i, doc in enumerate(docs):
+                facts_parts.append(f"[{i+1}] {doc.file_name} (Page {doc.chunk_index}): {doc.text[:500]}...")
+            facts_str = "\n\n".join(facts_parts)
+
             # Generate response from documents
             response_data = generate_rag_response(user_question, docs)
             
@@ -252,10 +268,32 @@ def document_rag_explorer(parameters: SkillInput):
         ]
         logger.info(f"DEBUG: Fallback visualizations created: {len(visualizations)}")
     
-    # Return skill output with final_prompt for insights and narrative=None like other skills
+    # Render prompts with facts using jinja2
+    import jinja2
+
+    # Render max_prompt for chat response (left panel)
+    try:
+        rendered_max_prompt = jinja2.Template(max_prompt).render(facts=facts_str, question=user_question)
+    except Exception as e:
+        logger.error(f"Error rendering max_prompt: {e}")
+        rendered_max_prompt = f"Found {len(docs) if docs else 0} relevant documents. See the Response tab for details."
+
+    # Render insight_prompt and get LLM response for narrative (right panel)
+    rendered_narrative = None
+    if docs and facts_str:
+        try:
+            rendered_insight_prompt = jinja2.Template(insight_prompt).render(facts=facts_str, question=user_question)
+            from ar_analytics import ArUtils
+            ar_utils = ArUtils()
+            rendered_narrative = ar_utils.get_llm_response(rendered_insight_prompt)
+        except Exception as e:
+            logger.error(f"Error rendering insight_prompt or getting LLM response: {e}")
+            rendered_narrative = None
+
+    # Return skill output with rendered prompts
     return SkillOutput(
-        final_prompt=max_prompt,
-        narrative=None,
+        final_prompt=rendered_max_prompt,
+        narrative=rendered_narrative,
         visualizations=visualizations,
         export_data=[]
     )
@@ -460,24 +498,24 @@ def find_matching_documents(user_question, topics, loaded_sources, base_url, max
         raw_query_response = ar_client.llm.generate_embeddings([query_text])
 
         # Extract embedding vector from response
-        if hasattr(raw_query_response, 'embeddings') and len(raw_query_response.embeddings) > 0:
+        if hasattr(raw_query_response, 'embeddings') and raw_query_response.embeddings and len(raw_query_response.embeddings) > 0:
             query_embedding = raw_query_response.embeddings[0].vector
-        elif isinstance(raw_query_response, list):
+        elif isinstance(raw_query_response, list) and len(raw_query_response) > 0:
             query_embedding = raw_query_response[0]
         else:
-            raise Exception(f"Unexpected embedding response structure from API")
+            raise Exception(f"Unexpected embedding response structure from API: {type(raw_query_response)}")
 
         # Generate embeddings for all document chunks
         document_texts = [source['text'] for source in loaded_sources]
         raw_doc_response = ar_client.llm.generate_embeddings(document_texts)
 
         # Extract embedding vectors from response
-        if hasattr(raw_doc_response, 'embeddings') and len(raw_doc_response.embeddings) > 0:
+        if hasattr(raw_doc_response, 'embeddings') and raw_doc_response.embeddings and len(raw_doc_response.embeddings) > 0:
             document_embeddings = [item.vector for item in raw_doc_response.embeddings]
-        elif isinstance(raw_doc_response, list):
+        elif isinstance(raw_doc_response, list) and len(raw_doc_response) > 0:
             document_embeddings = raw_doc_response
         else:
-            raise Exception(f"Unexpected embedding response structure from API")
+            raise Exception(f"Unexpected embedding response structure from API: {type(raw_doc_response)}")
 
         # Calculate cosine similarity between query and each document
         scored_sources = []
