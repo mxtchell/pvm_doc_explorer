@@ -279,22 +279,10 @@ def document_rag_explorer(parameters: SkillInput):
         logger.error(f"Error rendering max_prompt: {e}")
         rendered_max_prompt = f"Found {len(docs) if docs else 0} relevant documents. See the Response tab for details."
 
-    # Render insight_prompt and get LLM response for narrative (right panel)
-    rendered_narrative = None
-    if docs and facts_str:
-        try:
-            rendered_insight_prompt = jinja2.Template(insight_prompt).render(facts=facts_str, question=user_question)
-            from ar_analytics import ArUtils
-            ar_utils = ArUtils()
-            rendered_narrative = ar_utils.get_llm_response(rendered_insight_prompt)
-        except Exception as e:
-            logger.error(f"Error rendering insight_prompt or getting LLM response: {e}")
-            rendered_narrative = None
-
-    # Return skill output with rendered prompts
+    # Return skill output - narrative=None since Response tab already has the detailed analysis
     return SkillOutput(
         final_prompt=rendered_max_prompt,
-        narrative=rendered_narrative,
+        narrative=None,
         visualizations=visualizations,
         export_data=[]
     )
