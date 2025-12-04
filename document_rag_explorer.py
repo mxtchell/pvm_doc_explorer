@@ -57,14 +57,8 @@ logger = logging.getLogger(__name__)
         SkillParameter(
             name="max_prompt",
             parameter_type="prompt",
-            description="Prompt for chat response (left panel) - 30 words max",
-            default_value="Answer in 30 words or less using these facts:\n{{facts}}"
-        ),
-        SkillParameter(
-            name="insight_prompt",
-            parameter_type="prompt",
-            description="Prompt for insights narrative (right panel) - detailed analysis",
-            default_value="Answer the user's question based on the sources provided. Write a clear, comprehensive response with citations like [1], [2]. Be thorough but concise. 250 words max.\n\nQuestion: {{question}}\n\nSources:\n{{facts}}"
+            description="Prompt for the chat response (left panel).",
+            default_value="Answer user question in 30 words or less using following facts:\n{{facts}}"
         ),
         SkillParameter(
             name="response_layout",
@@ -90,7 +84,6 @@ def document_rag_explorer(parameters: SkillInput):
     match_threshold = parameters.arguments.match_threshold or 0.2
     max_characters = parameters.arguments.max_characters or 3000
     max_prompt = parameters.arguments.max_prompt
-    insight_prompt = parameters.arguments.insight_prompt
 
     # Initialize empty topics list (globals not available in SkillInput)
     list_of_topics = []
