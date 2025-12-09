@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
             name="max_prompt",
             parameter_type="prompt",
             description="Prompt for the chat response (left panel).",
-            default_value="Respond in 2-3 sentences MAX. First, give a 1-2 sentence summary answering the user's question. Then say which documents contain more detail. Do NOT provide a full analysis - just a brief teaser.\n\nUser question: {{question}}\n\nSources found:\n{{facts}}"
+            default_value="Respond in 2-3 sentences MAX. Give a 1-2 sentence summary answering the user's question. Then tell them to refer to the linked documents in References for more detail. Do NOT list document names or provide a full analysis.\n\nUser question: {{question}}"
         ),
         SkillParameter(
             name="response_layout",
