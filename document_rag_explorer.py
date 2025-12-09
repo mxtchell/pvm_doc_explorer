@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
             parameter_type="code",
             description="Base URL for document links",
             required=True,
-            default_value="https://maxdemo.staging.answerrocket.com/apps/system/knowledge-base"
+            default_value="https://pvm.poc.answerrocket.com/apps/system/knowledge-base"
         ),
         SkillParameter(
             name="max_sources",
