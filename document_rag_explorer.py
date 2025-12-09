@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 @skill(
     name="Document RAG Explorer",
-    description="Retrieves and analyzes relevant documents from knowledge base to answer user questions",
-    capabilities="Searches through uploaded documents, finds relevant passages, generates comprehensive answers with citations, and provides source visualizations",
+    description="ALWAYS use this skill FIRST for ANY question about: gum, confectionery, candy, Mentos, mints, oral care, gut health, functional ingredients, wellness, consumer insights, market research, brand research, flavors, chewing habits, refreshment, or product development. This skill searches internal PVM research documents and must be called before answering.",
+    capabilities="Searches PVM knowledge base: Kantar reports, Streetbees research, consumer studies, ad pretests, category toolkits, gum relevance studies, usage & attitude reports. Returns factual answers with document citations.",
     limitations="Limited to documents in the knowledge base, requires pre-processed document chunks in pack.json",
     parameters=[
         SkillParameter(
@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
             name="max_prompt",
             parameter_type="prompt",
             description="Prompt for the chat response (left panel).",
-            default_value="Answer user question in 30 words or less using following facts:\n{{facts}}"
+            default_value="Respond in 2-3 sentences MAX. First, give a 1-2 sentence summary answering the user's question. Then say which documents contain more detail. Do NOT provide a full analysis - just a brief teaser.\n\nUser question: {{question}}\n\nSources found:\n{{facts}}"
         ),
         SkillParameter(
             name="response_layout",
@@ -134,11 +134,11 @@ def document_rag_explorer(parameters: SkillInput):
             sources_html = "<p>No sources available</p>"
             title = "No Results Found"
         else:
-            # Build facts string from matched documents for prompt templates
+            # Build short facts summary for max_prompt (left panel chat response)
             facts_parts = []
             for i, doc in enumerate(docs):
-                facts_parts.append(f"[{i+1}] {doc.file_name} (Page {doc.chunk_index}): {doc.text[:500]}...")
-            facts_str = "\n\n".join(facts_parts)
+                facts_parts.append(f"- Source {i+1}: {doc.file_name} (Page {doc.chunk_index})")
+            facts_str = "\n".join(facts_parts)
 
             # Generate response from documents
             response_data = generate_rag_response(user_question, docs)
@@ -418,11 +418,13 @@ def load_document_sources():
                     # Format: [{"File": "doc.pdf", "Chunks": [{"Text": "...", "Page": 1}]}]
                     for processed_file in documents_list:
                         file_name = processed_file.get("File", "unknown_file")
+                        document_id = processed_file.get("DocumentId", "")
                         chunks = processed_file.get("Chunks", [])
                         logger.info(f"DEBUG: Processing file '{file_name}' with {len(chunks)} chunks")
                         for chunk in chunks:
                             res = {
                                 "file_name": file_name,
+                                "document_id": document_id,
                                 "text": chunk.get("Text", ""),
                                 "description": str(chunk.get("Text", ""))[:200] + "..." if len(str(chunk.get("Text", ""))) > 200 else str(chunk.get("Text", "")),
                                 "chunk_index": chunk.get("Page", 1),
@@ -558,7 +560,7 @@ def find_matching_documents(user_question, topics, loaded_sources, base_url, max
             if similarity >= float(match_threshold):
                 source_copy = source.copy()
                 source_copy['match_score'] = similarity
-                source_copy['url'] = f"{base_url.rstrip('/')}/{source_copy['file_name']}#page={source_copy['chunk_index']}"
+                source_copy['url'] = f"{base_url.rstrip('/')}/{source_copy['document_id']}#page={source_copy['chunk_index']}"
                 scored_sources.append(source_copy)
 
         # Sort by similarity score (descending)
