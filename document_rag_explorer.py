@@ -318,8 +318,8 @@ def create_sources_table(references):
     
     for i, ref in enumerate(references):
         bg_color = '#ffffff' if i % 2 == 0 else '#f8f9fa'
-        # Extract match score from ref if available, otherwise use placeholder
-        match_score = ref.get('match_score', '0.780000') if hasattr(ref, 'get') else '0.780000'
+        # Extract match score from ref
+        match_score = ref.get('match_score', 'N/A') if hasattr(ref, 'get') else 'N/A'
         html_parts.append(f"""
             <tr style='background-color: {bg_color}; border-bottom: 1px solid #dee2e6;'>
                 <td style='padding: 12px;'>
