@@ -662,7 +662,8 @@ def generate_rag_response(user_question, docs):
             'page': doc.chunk_index,
             'text': f"Document: {doc.file_name}",
             'preview': preview_text,
-            'thumbnail': ""  # Would be populated with actual thumbnail if available
+            'thumbnail': "",  # Would be populated with actual thumbnail if available
+            'match_score': round(doc.match_score, 3) if hasattr(doc, 'match_score') else 'N/A'
         }
         references.append(ref)
 
